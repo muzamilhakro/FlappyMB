@@ -11,22 +11,17 @@ canvas.height = CANVAS_H;
 // Asset names (place these files beside HTML)
 const ASSETS = {
   bg: 'flappybirdbg.png',
-  bird: 'FB_IMG_1761575220463-pica.png', // Make sure this file exists
+  bird: 'FB_IMG_1761575220463-pica.png  ',
   topPipe: 'toppipe.png',
   bottomPipe: 'bottompipe.png',
   fartSound: document.getElementById('fartSound'),
   hitSound: document.getElementById('hitSound') // NEW LONG SOUND
 };
 
-// Check if HTML elements exist for sounds
-if (!ASSETS.fartSound) console.error("Element with id 'fartSound' not found in HTML");
-if (!ASSETS.hitSound) console.error("Element with id 'hitSound' not found in HTML");
-
 let images = {};
 let imagesToLoad = Object.keys(ASSETS).filter(k => k !== 'fartSound' && k !== 'hitSound').length;
 let loadedCount = 0;
 let debug = true;
-let soundLockedAfterHit = false; // ADD THIS - prevents fart sound after collision
 
 function log(...args) { if (debug) console.log(...args); }
 
@@ -49,7 +44,7 @@ for (let key of Object.keys(ASSETS)) {
 // Game state
 let bird = {
   x: CANVAS_W / 6,
-  y: CANVAS_H / 2, // CHANGED from /1 to /2 (center vertically)
+  y: CANVAS_H / 1,
   width: 82.5,
   height: 82.5,
   velY: 0
@@ -60,7 +55,7 @@ const JUMP_V = -7.0;
 const VELOCITY_X = -2.0;
 
 let pipes = [];
-let pipeWidth = 50;
+let pipeWidth = 42;
 let pipeHeight = 400;
 let placePipeInterval = null;
 
@@ -77,18 +72,16 @@ function enableAudioOnGesture() {
   if (audioEnabled) return;
 
   function unlock(a) {
-    if (!a) return;
     a.play().then(() => {
       a.pause();
       a.currentTime = 0;
     }).catch(() => { });
   }
 
-  if (ASSETS.fartSound) unlock(ASSETS.fartSound);
-  if (ASSETS.hitSound) unlock(ASSETS.hitSound);
+  unlock(ASSETS.fartSound);
+  unlock(ASSETS.hitSound);
 
   audioEnabled = true;
-  log("Audio enabled");
 }
 
 window.addEventListener('touchstart', enableAudioOnGesture, { once: true });
@@ -96,13 +89,10 @@ window.addEventListener('mousedown', enableAudioOnGesture, { once: true });
 
 function onAllAssetsLoaded() {
   log("All images loaded, starting game.");
-  // Initialize the game
   startGame();
 }
 
 function placePipes() {
-  if (gameOver) return;
-  
   const randomPipeY = Math.floor(-pipeHeight / 4 - Math.random() * (pipeHeight / 2));
   const openingSpace = Math.floor(CANVAS_H / 3.3);
 
@@ -125,7 +115,6 @@ function placePipes() {
   };
 
   pipes.push(top, bottom);
-  log(`Placed pipes at y=${randomPipeY}, total pipes: ${pipes.length}`);
 }
 
 function resetGame() {
@@ -134,13 +123,6 @@ function resetGame() {
   pipes = [];
   score = 0;
   gameOver = false;
-  soundLockedAfterHit = false; // Reset the sound lock
-  
-  // Stop the hit sound if it's playing
-  try {
-    ASSETS.hitSound.pause();
-    ASSETS.hitSound.currentTime = 0;
-  } catch(e) {}
 
   clearInterval(placePipeInterval);
   placePipeInterval = setInterval(() => {
@@ -152,14 +134,11 @@ function resetGame() {
 
 function playFart() {
   if (!audioEnabled) enableAudioOnGesture();
-  if (soundLockedAfterHit) return; // Don't play fart after collision
 
   try {
     ASSETS.fartSound.currentTime = 0;
-    ASSETS.fartSound.play().catch(e => console.log("Fart sound play failed:", e));
-  } catch (e) { 
-    console.log("Fart sound error:", e);
-  }
+    ASSETS.fartSound.play();
+  } catch (e) { }
 }
 
 function playHitSound() {
@@ -174,29 +153,32 @@ function playHitSound() {
   // PLAY the long hit sound
   try {
     ASSETS.hitSound.currentTime = 0;
-    ASSETS.hitSound.play().catch(e => console.log("Hit sound play failed:", e));
-  } catch (e) {
-    console.log("Hit sound error:", e);
-  }
+    ASSETS.hitSound.play();
+  } catch (e) {}
 }
+  
 
 function jumpHandler(evt) {
   if (evt && evt.type === 'touchstart') evt.preventDefault();
 
-  // Enable audio on first interaction
-  enableAudioOnGesture();
+  // NEW: stop hit sound when tapping after collision
+  try {
+    ASSETS.hitSound.pause();
+    ASSETS.hitSound.currentTime = 0;
+  } catch (e) {}
 
   if (gameOver) {
     resetGame();
     return;
   }
-  
-  // Play fart sound and make bird jump
-  playFart();
-  bird.velY = JUMP_V;
-  log("Jump! Velocity set to:", JUMP_V);
-}
 
+  bird.velY = JUMP_V;
+
+  showFart = true;
+  fartStart = Date.now();
+
+  playFart();
+}
 // Collision detection
 function collision(a, b) {
   return (
@@ -215,14 +197,7 @@ function update(delta) {
   bird.y += bird.velY;
 
   if (bird.y < 0) bird.y = 0;
-  // Check if bird hits bottom of canvas (bird.y is top of bird)
-  if (bird.y + bird.height > CANVAS_H) {
-    gameOver = true;
-    if (!soundLockedAfterHit) {
-      soundLockedAfterHit = true;
-      playHitSound();
-    }
-  }
+  if (bird.y > CANVAS_H) gameOver = true;
 
   for (let p of pipes) {
     p.x += VELOCITY_X;
@@ -230,23 +205,24 @@ function update(delta) {
     if (!p.passed && bird.x > p.x + p.width) {
       score += 0.5;
       p.passed = true;
-      log("Score:", score);
     }
 
-    if (collision(bird, p) && !gameOver) {
-      gameOver = true;
-      soundLockedAfterHit = true; // Lock all sounds so fart cannot play again
+   if (collision(bird, p) && !gameOver) {
+    gameOver = true;
 
-      // Stop fart immediately
-      try {
+    // Lock all sounds so fart cannot play again
+    soundLockedAfterHit = true;
+
+    // stop fart immediately
+    try {
         ASSETS.fartSound.pause();
         ASSETS.fartSound.currentTime = 0;
-      } catch(e){}
+    } catch(e){}
 
-      // Play long collision sound
-      playHitSound();
-      log("Collision detected! Game over.");
-    }
+    // play long collision sound
+    playHitSound();
+}
+
   }
 
   pipes = pipes.filter(p => p.x + p.width > -50);
@@ -254,46 +230,25 @@ function update(delta) {
 
 // Draw everything
 function draw() {
-  // Clear canvas
-  ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
-  
-  if (images.bg) {
-    ctx.drawImage(images.bg, 0, 0, CANVAS_W, CANVAS_H);
-  } else {
-    // Draw background color if image not loaded
-    ctx.fillStyle = '#70c5ce';
-    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-  }
+  if (images.bg) ctx.drawImage(images.bg, 0, 0, CANVAS_W, CANVAS_H);
 
-  if (images.bird) {
-    ctx.drawImage(images.bird, bird.x, bird.y, bird.width, bird.height);
-  } else {
-    // Draw placeholder bird
-    ctx.fillStyle = 'yellow';
-    ctx.fillRect(bird.x, bird.y, bird.width, bird.height);
-  }
+  if (images.bird) ctx.drawImage(images.bird, bird.x, bird.y, bird.width, bird.height);
 
   for (let p of pipes) {
-    if (p.img) {
-      ctx.drawImage(p.img, p.x, p.y, p.width, p.height);
-    } else {
-      // Draw placeholder pipes
-      ctx.fillStyle = p.img === images.topPipe ? 'green' : 'red';
-      ctx.fillRect(p.x, p.y, p.width, p.height);
-    }
+    ctx.drawImage(p.img, p.x, p.y, p.width, p.height);
+  }
+
+  if (showFart && Date.now() - fartStart < FART_DURATION) {
+    if (images.fart) ctx.drawImage(images.fart, CANVAS_W - 80, CANVAS_H - 80, 60, 60);
+  } else {
+    showFart = false;
   }
 
   ctx.fillStyle = 'white';
   ctx.font = '32px Arial';
-  ctx.textBaseline = 'top';
 
-  if (gameOver) {
-    ctx.fillText('Game Over: ' + Math.floor(score), 10, 40);
-    ctx.font = '20px Arial';
-    ctx.fillText('Click/Tap to restart', 10, 80);
-  } else {
-    ctx.fillText(Math.floor(score), 10, 40);
-  }
+  if (gameOver) ctx.fillText('Game Over: ' + Math.floor(score), 10, 40);
+  else ctx.fillText(Math.floor(score), 10, 40);
 }
 
 // Main loop
@@ -310,30 +265,14 @@ function loop(now) {
 
 function startGame() {
   log("Starting main loop.");
-  // Start placing pipes
-  placePipeInterval = setInterval(() => { 
-    if (!gameOver) placePipes(); 
-  }, 1500);
-  
-  // Start game loop
+  placePipeInterval = setInterval(() => { if (!gameOver) placePipes(); }, 1500);
   requestAnimationFrame(loop);
 }
 
-// Event listeners
 window.addEventListener('keydown', e => {
-  if (e.code === 'Space') {
-    e.preventDefault();
-    jumpHandler(e);
-  }
+  if (e.code === 'Space') jumpHandler(e);
 });
 window.addEventListener('mousedown', jumpHandler);
 window.addEventListener('touchstart', jumpHandler, { passive: false });
 
-log("Required files: flappybirdbg.png, FB_IMG_1761575220463-pica.png, toppipe.png, bottompipe.png");
-log("Also needed in HTML: <audio id='fartSound' src='fart-83471.mp3'></audio>");
-log("And: <audio id='hitSound' src='hit.mp3'></audio>");
-
-// Check if canvas element exists
-if (!canvas) {
-  console.error("Canvas element with id 'gameCanvas' not found!");
-}
+log("Required: flappybirdbg.png, toppipe.png, bottompipe.png, bird.png, fart.mp3, hit.mp3");
